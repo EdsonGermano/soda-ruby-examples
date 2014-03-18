@@ -1,0 +1,22 @@
+# Creating external datasets from a data.json file
+
+A simple demo script that:
+
+- Reads in a valid data.json URL and for each dataset:
+  - Creates a new external dataset in a Socrata domain if none exists. If an existing dataset matches the identifier in the data.json file, it updates it
+  - Publishes the dataset
+  - Makes it public
+
+It demonstrates (using SODA 1.0)j:
+
+- The API for creating external datasets
+- How to publish a dataset
+- How to make a dataset public
+
+## Running
+
+    ./external-from-data-json --domain yourdomain.socrata.com --app-token your_apptoken --source "http://agency.gov/data.json"
+
+## TODO
+
+- The entire data.json schema is not yet mapped

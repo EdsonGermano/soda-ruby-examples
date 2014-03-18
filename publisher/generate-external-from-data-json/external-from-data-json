@@ -1,0 +1,84 @@
+#!/usr/bin/env ruby
+#
+# Updates a Socrata catalog based on a data.json
+#
+
+require 'soda/client'
+require 'trollop'
+require 'highline/import'
+require 'yaml'
+require 'open-uri'
+require 'json'
+
+# Read defaults from our config file if it's present
+config = {}
+if File.readable?("#{ENV['HOME']}/.soda.yml")
+  config = YAML::load(File.open("#{ENV['HOME']}/.soda.yml")).inject({}){ |memo, (k,v)| memo[k.to_sym] = v; memo}
+end
+
+# Options
+opts = Trollop::options do
+  opt :domain,        "Destination domain",                            :type => :string, :required => true
+  opt :username,      "Socrata username/email",                        :type => :string, :default => config[:username]
+  opt :password,      "Socrata password",                              :type => :string, :default => config[:password]
+  opt :app_token,     "An app token you've registered for your app",   :type => :string, :default => config[:app_token], :required => true
+  opt :source,        "Source data.json URL",                          :type => :string, :required => true
+end
+
+# If they didn't pass a username or password, ask for it
+if opts[:username].nil?
+  opts[:username] = ask("Username: ") { |q| q.echo = true }
+end
+if opts[:password].nil?
+  opts[:password] = ask("Password: ") { |q| q.echo = "*" }
+end
+
+# Set up our client
+client = SODA::Client.new(opts)
+
+# Fetch our source data
+open(opts[:source]) {|f|
+  datasets = JSON::parse(f.read)
+  # puts datasets.inspect
+  # require 'pry'; binding.pry
+
+  datasets.each do |ds|
+    new_ds = {
+      # TODO: The entire data.json schema is not mapped here. That is left as an exercise for the user.
+      :externalId => ds["identifier"],
+      :name => ds["title"],
+      :description => ds["description"],
+      :attribution => ds["publisher"],
+      :metadata => {
+        :accessPoints => {
+          ds["format"] => ds["accessURL"]
+        }
+      }
+    }
+
+    # Check to see if this dataset already exists
+    response = client.get("/api/views.json", { :method => "getByExternalId", :externalId => ds["identifier"] })
+
+    if !response.empty?
+      # We already have a dataset by this externalId
+      puts "Updating #{response.first.id} with #{ds["identifier"]}..."
+      response = client.put("/api/views/#{response.first.id}", new_ds)
+    else
+      # Create our new dataset
+      puts "Creating new dataset for #{ds["identifier"]}..."
+      response = client.post("/api/views.json", new_ds)
+    end
+
+    begin
+      puts "Publishing #{response.id}..."
+      client.post("/api/views/#{response.id}/publication.json")
+    rescue Exception => e
+      puts "Whoops! Already published. :)"
+    end
+
+    puts "Making #{response.id} public..."
+    client.put("/views/#{response.id}", nil, { :method => "setPermission", :value => "public.read" })
+
+    puts "Done with #{response.id}."
+  end
+}
